@@ -3,3 +3,7 @@ Gunicorn
 python-dotenv
 pymongo[srv]
 Flask-PyMongo
+google-generativeai
+Flask-Cors
+langchain
+google
