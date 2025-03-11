@@ -8,6 +8,10 @@ import google.generativeai as genai
 import hashlib
 import os
 from string import Formatter
+import jwt
+import re
+import datetime
+import json
 
 load_dotenv()
 
@@ -50,6 +54,20 @@ def create_agent_writer():
     })
     return jsonify({"id": str(result.inserted_id)}), 201
 
+@app.route('/api/v1/agent/persona/all', methods=['GET'])
+def get_personal_all():
+    personas = list(mongo.db.agent_writers.aggregate([
+
+            {"$project": {
+                "name": 1,
+                "industry": 1,
+                "instruction": 1
+            }}
+        ]))
+    for t in personas:
+        t["_id"] = str(t["_id"])
+    return jsonify(personas)
+
 # Create a new agent task
 @app.route('/api/v1/agent/task/create', methods=['POST'])
 def create_agent_task():
@@ -72,8 +90,8 @@ def create_agent_task():
     if data['is_writer_need']:
         prompt = persona + "\n\n" + original_instruction  # Make sure this is indented
 
-    if data['goal']:
-        prompt = data['goal'] + "\n\n" + prompt  # Make sure this is indented
+    # if data['goal']:
+    #     prompt = data['goal'] + "\n\n" + prompt  # Make sure this is indented
 
     default_writer_input = data.get('default_writer')
     if default_writer_input is None or default_writer_input.strip() == "":
@@ -122,6 +140,7 @@ def get_agent_tasks():
         {"$project": {
             "name": 1,
             "goal": 1,
+            "key":1,
             "instruction": 1,
             "is_writer_need": 1,
             "parameters":1,
@@ -224,12 +243,14 @@ def get_task(task_key):
 def test_content():
     data = request.get_json()
     api_key = data.get('api_key', '').strip()
+    json_format = data.get('json_format')
 
     if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
         return jsonify({"error": "Invalid api key"}), 400
 
 
     task_key = data.get('key', '').strip()
+    print(f"""Here is key {task_key}""")
     parameters = data.get('parameters', {})
     llm = data.get('llm', {})
     # llm = {
@@ -242,34 +263,47 @@ def test_content():
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
-    try:
-        obj_id = ObjectId(task["default_writer"])
-    except Exception as e:
-        return jsonify({"error": "Invalid writer id"}), 400
-
     prompt = task["prompt"]
     placeholder = "<<<Persona>>>"
     final_prompt = task["instruction"]
 
     if task["is_writer_need"]:
-        writer = mongo.db.agent_writers.find_one({"_id": obj_id})
-        if not writer:
-            return jsonify({"error": "Writer not found"}), 404
-        final_prompt = prompt.replace(placeholder, writer["prompt"])
+        obj_id = None
+        if task["default_writer"]:
+            try:
+                obj_id = ObjectId(task["default_writer"])
+            except Exception as e:
+                return jsonify({"error": "Invalid selected writer id"}), 400
+        else:
+            try:
+                obj_id = ObjectId(parameters["persona"])
+                if "persona" in parameters:
+                    del parameters["persona"]
+            except Exception as e:
+                return jsonify({"error": "Invalid writer id"}), 400
 
-    final_prompt = replace_prompt_variables(final_prompt, parameters)
+        if obj_id:
+            writer = mongo.db.agent_writers.find_one({"_id": obj_id})
+            if not writer:
+                return jsonify({"error": "Writer not found"}), 404
+            final_prompt = prompt.replace(placeholder, writer["prompt"])
 
+    # return final_prompt
     try:
         response = chat_model.generate_content(final_prompt)
-        ai_response = response.text if hasattr(response, "text") else response
     except Exception as e:
             return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
 
-    html_output = text_to_html(response.text)
-
-    response = make_response(html_output)
-    response.headers['Content-Type'] = 'text/html'
-    return response
+    # html_output = text_to_html(response.text)
+    #
+    # response = make_response(html_output)
+    # response.headers['Content-Type'] = 'text/html'
+    if json_format:
+        cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
+        json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
+        return jsonify({"data": json_data}), 200
+    else:
+        return jsonify({"data": response.text}), 200
 
 
 if __name__ == '__main__':
