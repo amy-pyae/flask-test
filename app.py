@@ -7,6 +7,7 @@ from langchain.prompts import PromptTemplate  # Using LangChain for prompt forma
 import google.generativeai as genai
 import hashlib
 import os
+from string import Formatter
 
 load_dotenv()
 
@@ -63,6 +64,10 @@ def create_agent_task():
     persona= "<<<Persona>>>"
     prompt = data['instruction']
     role = "admin"
+    llm = {
+        "llm_name": "gemini",
+        "model" : "gemini-flash-pro"
+    }
 
     if data['is_writer_need']:
         prompt = persona + "\n\n" + original_instruction  # Make sure this is indented
@@ -95,6 +100,7 @@ def create_agent_task():
         "is_writer_need": data['is_writer_need'],
         "default_writer": writer_obj_id,
         "parameters": data['parameters'],
+        "default_llm": llm,
         "role":"admin",     # admin,developer
                             # "created_by":"user"
     })
@@ -181,10 +187,20 @@ def text_to_html(text):
 def replace_prompt_variables(prompt, parameters):
     """Replaces placeholders in the prompt using LangChain's PromptTemplate, ensuring values are enclosed in double quotes."""
 
+    # Replace "${" with "{" for compatibility with PromptTemplate
     prompt = prompt.replace("${", "{")
 
-    # Wrap all parameter values in double quotes
+    # Wrap provided parameter values in double quotes
     quoted_parameters = {key: f'"{value}"' for key, value in parameters.items()}
+
+    # Parse the prompt to find all placeholders
+    formatter = Formatter()
+    placeholders = [field_name for _, field_name, _, _ in formatter.parse(prompt) if field_name]
+
+    # Ensure every placeholder has a value; if missing, default to an empty string.
+    for field in placeholders:
+        if field not in quoted_parameters:
+            quoted_parameters[field] = ""
 
     # Use LangChain's PromptTemplate for replacement
     prompt_template = PromptTemplate.from_template(prompt)
@@ -206,14 +222,20 @@ def get_task(task_key):
 
 @app.route('/api/v1/prompt', methods=['POST'])
 def test_content():
-
     data = request.get_json()
     api_key = data.get('api_key', '').strip()
-    task_key = data.get('key', '').strip()
-    parameters = data.get('parameters', {})
 
     if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
         return jsonify({"error": "Invalid api key"}), 400
+
+
+    task_key = data.get('key', '').strip()
+    parameters = data.get('parameters', {})
+    llm = data.get('llm', {})
+    # llm = {
+    #     "llm_name": "Gemini",
+    #     "model": "gemini-1.5-flash"
+    # }
 
     task = get_task(task_key)
 
