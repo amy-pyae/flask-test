@@ -34,7 +34,7 @@ def generate_key(data: str):
 
 @app.route('/')
 def home():
-    return jsonify({"message": "Welcome to the Flask MongoDB App OOM!"})
+    return jsonify({"message": "Welcome to the Flask MongoDB App!"})
 
 
 @app.route('/api/v1/persona/create', methods=['POST'])
@@ -392,7 +392,7 @@ from bson import ObjectId
 def create_agent_v2():
     data = request.get_json()
     # Validate required fields
-    required_fields = ['name', 'goal', 'instruction', 'is_persona_need', 'default_writer']
+    required_fields = ['name', 'goal', 'instruction', 'is_writer_need', 'personas', 'default_persona']
     if not all(field in data for field in required_fields):
         return jsonify({"error": "Missing required fields"}), 400
 
@@ -451,7 +451,6 @@ def prompt_v2():
 
 
     task_key = data.get('key', '').strip()
-    print(f"""Here is key {task_key}""")
     parameters = data.get('parameters', {})
     llm = data.get('llm', {})
     # llm = {
@@ -489,7 +488,9 @@ def prompt_v2():
                 return jsonify({"error": "Writer not found"}), 404
             final_prompt = prompt.replace(placeholder, writer["prompt"])
 
-    return final_prompt
+    if len(parameters) > 0:
+        final_prompt = replace_prompt_variables(final_prompt, parameters)
+
     try:
         response = chat_model.generate_content(final_prompt)
     except Exception as e:
