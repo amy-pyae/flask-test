@@ -153,6 +153,7 @@ def create_agent_task():
         "goal": data['goal'],
         "instruction": original_instruction,
         "prompt": prompt,
+        "personas": data['personas'],
         "is_writer_need": data['is_writer_need'],
         "default_writer": writer_obj_id,
         "parameters": data['parameters'],
@@ -434,6 +435,7 @@ def create_agent_v2():
         "prompt": prompt,
         "is_writer_need": data['is_writer_need'],
         "default_writer": writer_obj_ids,  # Now storing a list of ObjectIds
+        "personas": data['personas'],
         "parameters": data['parameters'],
         "default_llm": llm,
         "role": "admin"  # admin, developer
@@ -445,6 +447,7 @@ def prompt_v2():
     data = request.get_json()
     api_key = data.get('api_key', '').strip()
     json_format = data.get('json_format')
+    # return_html = data.get('return_html')
 
     if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
         return jsonify({"error": "Invalid api key"}), 400
@@ -489,17 +492,20 @@ def prompt_v2():
             final_prompt = prompt.replace(placeholder, writer["prompt"])
 
     if len(parameters) > 0:
-        final_prompt = replace_prompt_variables(final_prompt, parameters)
+        if task_key != '474acb4b2ff762b7':
+            final_prompt = replace_prompt_variables(final_prompt, parameters)
 
     try:
         response = chat_model.generate_content(final_prompt)
     except Exception as e:
             return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
 
-    # html_output = text_to_html(response.text)
-    #
-    # response = make_response(html_output)
-    # response.headers['Content-Type'] = 'text/html'
+    # if return_html:
+    #     html_output = text_to_html(response.text)
+    #     response = make_response(html_output)
+    #     response.headers['Content-Type'] = 'text/html'
+    #     return response
+
     if json_format:
         cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
         json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
@@ -508,6 +514,26 @@ def prompt_v2():
         return jsonify({"data": response.text}), 200
 
 
+@app.route("/api/v1/writing-test", methods=["POST"])
+def test_writer():
+    data = request.get_json()
+
+    # Retrieve agentName from query parameters; default to 'default' if not provided
+    instruction = data.get('instruction')
+    task = get_task("c7845b09d6a64658")
+    # Construct the prompt for the chat API
+    # user_request = sdf
+    final_prompt =   task["prompt"] + "\n" + "instruction:" + instruction
+
+    response = chat_model.generate_content(final_prompt)
+    # return response.text
+    # Send the prompt to the chat API (dummy implementation here)
+    # response = chat.send_message(user_request)
+    # return "hay"
+    # Return the generated text in JSON format
+    cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
+    json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
+    return jsonify({"data": json_data}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
