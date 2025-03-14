@@ -447,7 +447,8 @@ def prompt_v2():
     data = request.get_json()
     api_key = data.get('api_key', '').strip()
     json_format = data.get('json_format')
-    # return_html = data.get('return_html')
+    return_html = data.get('return_html')
+
 
     if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
         return jsonify({"error": "Invalid api key"}), 400
@@ -455,6 +456,7 @@ def prompt_v2():
 
     task_key = data.get('key', '').strip()
     parameters = data.get('parameters', {})
+    # print(parameters['content'])
     llm = data.get('llm', {})
     # llm = {
     #     "llm_name": "Gemini",
@@ -500,11 +502,11 @@ def prompt_v2():
     except Exception as e:
             return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
 
-    # if return_html:
-    #     html_output = text_to_html(response.text)
-    #     response = make_response(html_output)
-    #     response.headers['Content-Type'] = 'text/html'
-    #     return response
+    if return_html:
+        html_output = text_to_html(response.text)
+        response = make_response(html_output)
+        response.headers['Content-Type'] = 'text/html'
+        return response
 
     if json_format:
         cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
@@ -531,6 +533,35 @@ def test_writer():
     # response = chat.send_message(user_request)
     # return "hay"
     # Return the generated text in JSON format
+    cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
+    json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
+    return jsonify({"data": json_data}), 200
+
+@app.route('/api/v1/formatter', methods=['POST'])
+def prompt_formatter():
+    data = request.get_json()
+    api_key = data.get('api_key', '').strip()
+
+    if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
+        return jsonify({"error": "Invalid api key"}), 400
+
+    task_key = data.get('key', '').strip()
+    parameters = data.get('parameters', {})
+
+    task = get_task(task_key)
+
+    final_prompt = task["prompt"]
+    prompt = task["prompt"]
+
+    final_prompt = prompt.replace("<<<CONTENT>>>", parameters["content"])
+
+    try:
+        response = chat_model.generate_content(final_prompt)
+    except Exception as e:
+            return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
+    #
+    #
+    #
     cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
     json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
     return jsonify({"data": json_data}), 200
