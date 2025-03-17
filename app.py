@@ -566,5 +566,67 @@ def prompt_formatter():
     json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
     return jsonify({"data": json_data}), 200
 
+@app.route('/api/v2/prompt/editor', methods=['POST'])
+def prompt_editor():
+    data = request.get_json()
+    api_key = data.get('api_key', '').strip()
+    json_format = data.get('json_format')
+    return_html = data.get('return_html')
+
+    if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
+        return jsonify({"error": "Invalid api key"}), 400
+
+
+    # task_key = data.get('key', '').strip()
+    parameters = data.get('parameters', {})
+    instruction = parameters['user_input']
+    original_content = parameters['orginal_content']
+    target_content = parameters['target_content']
+    llm = data.get('llm', {})
+
+    # task = get_task(task_key)
+
+    # if not task:
+    #     return jsonify({"error": "Task not found"}), 404
+
+    final_prompt = f"""You are an AI content editor. Modify **only** the Target Content according to the User Instruction, keeping the Original Content unchanged. Return the full text with the modified section seamlessly integrated.
+
+                        User Instruction:
+                        {instruction}
+                    
+                        Target Content (Selected by User) (Modify this text only):
+                        {target_content}
+                    
+                        Original Content (For Reference, Will Be Returned):
+                        {original_content}
+                    
+                        Guidelines:
+                        - Modify **only** the Target Content based on the User Instruction.
+                        - Do **not** alter the rest of the Original Content.
+                        - Ensure the modified section integrates naturally into the full text.
+                        - Maintain readability, coherence, and original meaning unless otherwise specified.
+    """
+
+    try:
+        response = chat_model.generate_content(final_prompt)
+    except Exception as e:
+            return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
+
+    if return_html:
+        html_output = text_to_html(response.text)
+        response = make_response(html_output)
+        response.headers['Content-Type'] = 'text/html'
+        return response
+
+    if json_format:
+        cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
+        json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
+        return jsonify({"data": json_data}), 200
+    else:
+        return jsonify({"data": response.text}), 200
+
+
+
+
 if __name__ == '__main__':
     app.run(debug=True)
