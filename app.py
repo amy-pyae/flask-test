@@ -1,33 +1,58 @@
 from flask import Flask, request, jsonify,make_response
-from flask_pymongo import PyMongo
 from flask_cors import CORS
-from dotenv import load_dotenv
-from bson import ObjectId
-from langchain.prompts import PromptTemplate  # Using LangChain for prompt formatting
+from flask_pymongo import PyMongo
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.prompts import PromptTemplate,ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableWithMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain.memory import ConversationSummaryBufferMemory
+from langchain_core.runnables import RunnableBranch
 import google.generativeai as genai
-import hashlib
-import os
+from bson import ObjectId
+from dotenv import load_dotenv
 from string import Formatter
+import json
+import redis
+import os
+import hashlib
 import jwt
 import re
-import datetime
 import json
+from datetime import datetime, UTC
 
 load_dotenv()
 
 app = Flask(__name__)
-
-app.config["MONGO_URI"] = os.getenv("MONGO_URI")
-mongo = PyMongo(app)
-
-# Configure API Key
-api_key = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
 CORS(app)
+
+
+# Configure
+app.config["MONGO_URI"] = os.getenv("MONGO_URI")
+api_key = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+model = ChatOpenAI(model="gpt-4o-mini")
+mongo = PyMongo(app)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+chat_model = genai.GenerativeModel("gemini-1.5-flash")
+redis_client = redis.Redis(
+    host=os.getenv("REDIS_URL"),
+    port=os.getenv("REDIS_PORT"),
+    decode_responses=True,
+    username=os.getenv("REDIS_USER_NAME"),
+    password=os.getenv("REDIS_API_PASSWORD")
+)
+
 
 # Initialize Gemini Pro Chat Model
 chat_model = genai.GenerativeModel("gemini-1.5-flash")
+redis_client = redis.Redis(
+    host=os.getenv("REDIS_URL"),
+    port=os.getenv("REDIS_PORT"),
+    decode_responses=True,
+    username=os.getenv("REDIS_USER_NAME"),
+    password=os.getenv("REDIS_API_PASSWORD")
+)
 
 def generate_key(data: str):
     return hashlib.sha256(data.encode()).hexdigest()[:16]  # Fixed 16 chars
@@ -41,37 +66,73 @@ def home():
 def create_agent_writer():
     data = request.get_json()
     # Validate required fields
-    required_fields = ['name', 'industry','goal', 'instruction']
+    required_fields = ['name','description', 'instruction']
     if not all(field in data for field in required_fields):
         return jsonify({"error": "Missing required fields"}), 400
+
+    now = datetime.now(UTC)
 
     # Insert the new document into the agent_writers collection
     result = mongo.db.agent_writers.insert_one({
         "name": data['name'],
-        "industry": data['industry'],
+        "description": data['description'],
         "instruction": data['instruction'],
         "prompt": data['instruction'],
-        "created_by": None
+        "created_by": None,
+        "created_at": now
     })
-    return jsonify({"id": str(result.inserted_id)}), 201
+    return jsonify({
+                        "id": str(result.inserted_id),
+                        "data": str(result)
+                    }), 201
 
 @app.route('/api/v1/persona/<id>', methods=['PUT'])
 def update_agent_writer(id):
     data = request.get_json()
     # Validate required fields
-    required_fields = ['name', 'industry', 'goal', 'instruction']
+    required_fields = ['name', 'description', 'instruction']
     if not all(field in data for field in required_fields):
         return jsonify({"error": "Missing required fields"}), 400
+
+    now = datetime.now(UTC)
 
     # Update the document in the agent_writers collection
     result = mongo.db.agent_writers.update_one(
         {"_id": ObjectId(id)},
         {"$set": {
             "name": data['name'],
-            "industry": data['industry'],
-            "goal": data['goal'],
+            "description": data['description'],
             "instruction": data['instruction'],
-            "prompt": data['instruction']  # using instruction as prompt, like in creation
+            "updated_at": now
+        }}
+    )
+
+    if result.matched_count == 0:
+        return jsonify({"error": "Persona not found"}), 404
+
+    return jsonify({"id": id}), 200
+
+@app.route('/api/v1/persona/deploy/<id>', methods=['post'])
+def deploy_writer(id):
+    data = request.get_json()
+
+    # Validate required fields
+    required_fields = ['instruction']
+    if not all(field in data for field in required_fields):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    now = datetime.now(UTC)
+
+    # Update the document in the agent_writers collection
+    result = mongo.db.agent_writers.update_one(
+        {"_id": ObjectId(id)},
+        {"$set": {
+            "name": data['name'],
+            "description": data['description'],
+            "instruction": data['instruction'],
+            "prompt": data['instruction'],
+            "updated_at": now,
+            "deploy_by": None
         }}
     )
 
@@ -99,7 +160,8 @@ def get_personal_all():
         {"$project": {
             "name": 1,
             "industry": 1,
-            "instruction": 1
+            "instruction": 1,
+            "description": 1
         }}
     ]))
     for t in personas:
@@ -625,8 +687,474 @@ def prompt_editor():
     else:
         return jsonify({"data": response.text}), 200
 
+#===================================
+def get_memory(session_id):
+    """Retrieve the summarized conversation from Redis as a list."""
+    summary = redis_client.get(f"summary:{session_id}")
+    if summary:
+        try:
+            return json.loads(summary)
+        except Exception as e:
+            print("Error loading memory:", e)
+    return []
 
+
+def save_memory(session_id, conversation_list):
+    """Store the updated conversation list in Redis."""
+    redis_client.set(f"summary:{session_id}", json.dumps(conversation_list))
+
+
+def check_message_clarity(message):
+    clarity_response = model.invoke([
+        {"role": "system",
+         "content": "If the user's message is unclear, suggest a clarifying question. If it's clear, return 'no-question'."},
+        {"role": "user", "content": message}
+    ], temperature=0)
+    return clarity_response.content.strip()
+
+
+def update_instruction(existing_instruction, new_info):
+    print(existing_instruction)
+
+    update_prompt = f"""
+                              The following is a description of an AI assistant:
+
+                              "{existing_instruction}"
+
+                              The user wants to add this instruction: "{new_info}".
+
+                              **Update the description naturally** to include this **without altering the existing structure**. 
+
+                              Ensure the output **keeps the original structure, only modifying where necessary**.
+
+                              **Output only the updated instruction** Only return the structured instruction text, without additional formatting, examples, or explanations or ```..
+                          """
+    messages_update = [
+        {"role": "system", "content": update_prompt}
+    ]
+    update_response = model.invoke(messages_update, temperature=0)
+    updated_instruction = update_response.content.strip()
+
+    return updated_instruction
+
+
+def refine_instruction(user_input):
+    prompt = f"""
+                   You are a system responsible for transforming user requests into well-structured AI assistant descriptions.
+
+    The user has provided the following instruction for their AI assistant:
+    "${user_input}"
+
+    **Task:** Rewrite this instruction into a clear, well-structured AI system prompt while preserving its original intent and meaning.
+
+    **Guidelines:**
+    - **Ensure the description starts with "This Bot is..."**
+    - Ensure the description is professional and coherent.
+    - Expand relevant details if necessary to improve clarity.
+    - Do **not** add unnecessary explanations or assumptions.
+    - Make it structured but not overly robotic.
+
+    **Output format:** Only return the structured instruction text, without additional formatting, examples, or explanations.
+                """
+
+    try:
+        response = model.invoke([
+            {"role": "system", "content": prompt}
+        ], temperature=0.7)
+
+        refined_instruction = response.content.strip()
+        return refined_instruction
+
+    except Exception as e:
+        print(f"Error with OpenAI API: {e}")
+        return "Error generating refined instruction."
+
+
+def is_instruction_request(user_input, conversation_history):
+    messages = [
+        {"role": "system", "content": f""" Below is a conversation where a user is interacting with an AI to create an assistant.
+                                       Determine if the last message indicates that the user is **shaping, refining, or modifying** the assistant's instruction.
+
+                                       Conversation so far:
+                                       {conversation_history}
+
+                                       Latest User Message:
+                                       "{user_input}"
+
+                                       Respond with:
+                                       - "yes" if this message is helping create, modify, or refine the assistant's function.
+                                       - "no" if this message is just a general conversation or request unrelated to defining the assistant.
+
+                                       Your response should be only "yes" or "no"."""
+         }
+    ]
+    response = model.invoke(messages, temperature=0)
+    classification = response.content.strip().lower()
+
+    return classification == "yes"
+
+
+def is_name_confirmation(user_input, suggested_name):
+    """Check if user is confirming the suggested name."""
+    messages = [
+        {"role": "system", "content": f"""
+            The user was suggested the assistant name **"{suggested_name}"**.
+
+            **Determine if they are confirming this name.**
+            - If they explicitly say "Yes", "Sounds good", "I like it", respond with "confirmed".
+            - If they reject it with "No", "I want something different", "Change it", respond with "rejected".
+            - If their response is unrelated, respond with "neutral".
+
+            User's response:
+            "{user_input}"
+
+            Respond with **only** one of the following:
+            - "confirmed"
+            - "rejected"
+            - "neutral"
+        """}
+    ]
+
+    response = model.invoke(messages, temperature=0)
+    return response.content.strip().lower()
+
+
+def is_name_update_request(user_input, conversation_history):
+    """Detects if the user is trying to update the assistant's name."""
+    messages = [
+        {"role": "system", "content": f"""
+            The user is interacting with an AI assistant.
+
+            **Task:** Determine if the user's latest message is an **explicit attempt** to rename or update the assistant's name.
+
+            **Instructions:**
+            - If the message **directly states a new name**, such as:
+              - "Call my assistant Julia Writer"
+              - "Change the name to AI Helper"
+              - "Set my assistant's name to TaskBot"
+              **Respond with:** `"yes"`
+
+            - If the message is **a general conversation request**, such as:
+              - "Tell me a joke"
+              - "How do I use this chatbot?"
+              - "Write a blog post"
+              **Respond with:** `"no"`
+
+            - If the message is **ambiguous** (e.g., "I want to update my assistant"), ask for **clarification** by responding with:  
+              `"clarification_needed"`
+
+            **Conversation so far:**
+            {conversation_history}
+
+            **User's Message:**
+            "{user_input}"
+
+            **Valid Responses:**  
+            - `"yes"` (if this is an explicit name update)  
+            - `"no"` (if this is general conversation)  
+            - `"clarification_needed"` (if it's unclear)  
+        """}
+    ]
+
+    response = model.invoke(messages, temperature=0)
+    result = response.content.strip().lower()
+
+    if result == "yes":
+        return True
+    elif result == "clarification_needed":
+        return "clarification_needed"
+    return False
+
+
+def suggest_assistant_name(conversation_history):
+    """Suggests a meaningful assistant name based on conversation context."""
+    messages = [
+        {"role": "system", "content": """
+            Analyze the following conversation and suggest the **best possible name** for the AI assistant.
+
+            **Guidelines:**
+            - The name should be **clear, relevant, and professional**.
+            - **Do NOT exceed 50 characters**.
+            - Avoid generic names like "AI" or "Assistant" alone.
+            - Suggest something meaningful based on the context.
+            - Keep it simple yet descriptive (e.g., "AI Writing Assistant").
+            - Return only a **valid JSON object**.
+
+            **Output format:**
+            { "suggestedName": "Assistant Name Here" }
+        """},
+        {"role": "user", "content": str(conversation_history)}
+    ]
+
+    response = model.invoke(messages, temperature=0)
+
+    try:
+        extracted_data = json.loads(response.content.strip())
+        return extracted_data.get("suggestedName", "AI Assistant")
+    except Exception as e:
+        print(f"Error suggesting assistant name: {e}")
+        return "AI Assistant"
+
+
+def generate_ai_system_prompt(user_prompt):
+    prompt = f"""
+           The user wants to create an AI assistant based on the following request:
+
+            "{user_prompt}"
+
+            Please generate a structured **assistant profile** with:
+
+            1.  A well-structured paragraph explaining:
+               - **What does the assistant do?**
+               - **How does it behave?**
+               - **What should it avoid doing?**
+
+            The response should be structured **exactly like this**, without extra formatting:
+
+            ``` 
+                [One-sentence description] [Detailed instructions] 
+            ```
+
+            Keep the response **clear, professional, and easy to understand**.
+            **Output format:** Only return the structured instruction text, without additional formatting, examples, or explanations or ```.
+        """
+
+    try:
+        response = model.invoke([
+            {"role": "system", "content": prompt}
+        ], temperature=0.7)
+
+        refined_instruction = response.content.strip()
+        return refined_instruction
+
+    except Exception as e:
+        print(f"Error with OpenAI API: {e}")
+        return "Error generating refined instruction."
+
+
+def update_title(updated_instruction):
+    title_messages = [
+        {"role": "system", "content": """
+                                            Analyze the following AI assistant description and extract a **concise assistant profile name**.
+
+                                            **Requirements:**
+                                            - The name should be **clear, relevant, and meaningful**.
+                                            - **Do NOT exceed 50 characters**.
+                                            - Keep it professional and structured.
+                                            - Do NOT include unnecessary words like "This GPT is...".
+                                            - Return ONLY a valid JSON response without any extra text or formatting.
+
+                                            Output format:
+                                            {
+                                                "assistantProfile": ""
+                                            }
+                                        """
+         },
+        {"role": "user", "content": updated_instruction}
+    ]
+    title_response = model.invoke(title_messages, temperature=0)
+    extracted_title = title_response.content.strip()
+
+    return extracted_title
+
+
+def safe_openai_call(messages, temperature=0.7):
+    """Safely invoke OpenAI API with error handling."""
+    try:
+        response = model.invoke(messages, temperature=temperature)
+        return response.content.strip()
+    except Exception as e:
+        print(f"OpenAI API Error: {e}")
+        return "I'm experiencing technical issues. Please try again later."
+
+
+def extract_assistant_name(conversation_history):
+    """Extract a meaningful assistant name based on previous interactions."""
+    messages = [
+        {"role": "system", "content": """
+            Analyze the following conversation and determine the **best possible name** for the AI assistant.
+
+            **Guidelines:**
+            - The name should be **clear, relevant, and professional**.
+            - **Do NOT exceed 50 characters**.
+            - Avoid generic names like "AI" or "Assistant" alone.
+            - Keep it simple yet descriptive (e.g., "AI Writing Assistant").
+            - Return only a **valid JSON object**.
+
+            **Output format:**
+            { "assistantProfile": "Assistant Name Here" }
+        """},
+        {"role": "user", "content": str(conversation_history)}
+    ]
+    response = model.invoke(messages, temperature=0)
+
+    try:
+        extracted_data = json.loads(response.content.strip())
+        return extracted_data.get("assistantProfile", "AI Assistant")
+    except Exception as e:
+        print(f"Error extracting assistant name: {e}")
+        return "AI Assistant"
+
+
+def update_conversation_history(session_id, user_input, ai_response):
+    """Update conversation history and prevent duplicates."""
+    conversation_history = get_memory(session_id)
+
+    if conversation_history:
+        last_entry = conversation_history[-1]
+        if last_entry.get("role") == "assistant" and last_entry.get("content") == ai_response:
+            return
+
+    conversation_history.append({"role": "user", "content": user_input})
+    conversation_history.append({"role": "assistant", "content": ai_response})
+
+    save_memory(session_id, conversation_history)
+
+
+@app.route("/api/v1/chat", methods=["POST"])
+def chat():
+    data = request.json
+    user_input = data.get("message")
+    session_id = data.get("session_id", "default_session")
+    instruction = data.get("instruction")
+    info = data.get("info")
+
+    if not user_input:
+        return jsonify({"error": "Message is required."}), 400
+
+    conversation_history = get_memory(session_id)
+    updated_instruction = instruction
+
+    if is_name_update_request(user_input, conversation_history):
+        extracted_title = user_input.strip()
+        return jsonify({
+            "response": f"Got it! Your assistant is now named **{extracted_title}**.",
+            "updatedName": extracted_title
+        })
+
+    suggested_title = suggest_assistant_name(conversation_history)
+
+    name_confirmation = is_name_confirmation(user_input, suggested_title)
+    if name_confirmation == "confirmed":
+        return jsonify({
+            "response": f"Great! Your assistant is now named **{suggested_title}**.",
+            "updatedName": suggested_title
+        })
+    elif name_confirmation == "rejected":
+        return jsonify({
+            "response": "No problem! What name would you prefer?"
+        })
+
+    if is_instruction_request(user_input, conversation_history):
+        if not instruction:
+            print('Initial Instruction')
+            updated_instruction = generate_ai_system_prompt(user_input)
+        else:
+            print('Update Instruction')
+            updated_instruction = update_instruction(instruction, user_input)
+
+    extracted_title = update_title(updated_instruction)
+
+    messages = [
+        {"role": "system", "content": f"""{info}"""},
+        {"role": "system", "content": f"""You are a helpful assistant configured to help users write instructions. Your goal is to guide the user step by step without providing long explanations.
+
+              - If a user expresses uncertainty, suggest **one or two specific next steps** in a **short response**.
+              - If a user gives a vague request, ask a **single clarifying question** instead of assuming details.
+              - Keep responses short, engaging, and focused on **helping the user decide the next step**.
+              - Avoid explaining concepts unless the user specifically asks for details.."""}
+    ]
+
+    if conversation_history:
+        messages.extend(conversation_history)
+    messages.append({"role": "user", "content": user_input})
+    print(messages)
+    response = model.invoke(messages, temperature=0)
+
+    conversation_history.append({"role": "user", "content": user_input})
+    conversation_history.append({"role": "assistant", "content": response.content})
+    save_memory(session_id, conversation_history)
+
+    return jsonify({
+        "response": response.content,
+        "detectedProfile": (extracted_title or updated_instruction),
+        "updatedInstruction": updated_instruction,
+        "updatedName": extracted_title
+    })
+
+
+def generate_assistant_profile(previous_instruction, user_input):
+    """Generates a structured AI assistant description based on previous instruction and new input."""
+    messages = [
+        {"role": "system", "content": """
+            The user has provided an existing assistant instruction.
+            They are now modifying or adding details.
+
+            **Task:** Update the assistant behavior **while keeping its original structure**.
+
+            **Guidelines:**
+            - Preserve the **core behavior** from the previous instruction.
+            - Naturally **integrate** any new information from the latest user input.
+            - Keep the description **clear, concise, and professional**.
+            - Avoid unnecessary repetition.
+            - Return only the **assistant profile text**.
+
+            **Example Input:**  
+            Previous Instruction: "This AI helps generate SEO articles."  
+            User Input: "Make sure it includes keyword research."  
+
+            **Example Output:**  
+            "This AI helps generate SEO articles with keyword research. It optimizes readability, improves formatting, and ensures the content is well-structured."
+        """},
+        {"role": "user", "content": f"Previous Instruction: {previous_instruction}\nUser Input: {user_input}"}
+    ]
+
+    response = model.invoke(messages, temperature=0)
+    print(response.content)
+    return response.content.strip()
+
+
+def save_testing_memory(session_id, user_input, ai_response):
+    """Store the updated conversation in Redis."""
+    conversation_history = get_memory(session_id)
+
+    conversation_history.append({"role": "user", "content": user_input})
+    conversation_history.append({"role": "assistant", "content": ai_response})
+
+    redis_client.set(f"chat_history:{session_id}", json.dumps(conversation_history))
+
+
+@app.route("/api/v1/test-instruction", methods=["POST"])
+def test_instruction():
+    data = request.json
+    user_input = data.get("message")
+    session_id = data.get("session_id", "default_session")
+    instruction = data.get("instruction")
+    conversation_history = get_memory(session_id)
+
+    if not user_input:
+        return jsonify({"error": "Message is required."}), 400
+
+    prompt_template = ChatPromptTemplate.from_messages([
+        SystemMessage(content="You are an AI assistant being configured by the user."),
+        SystemMessage(content="Your goal is to update the assistant's behavior naturally based on user requests."),
+        SystemMessage(content=f"Current Assistant Configuration: {instruction}"),
+        MessagesPlaceholder(variable_name="conversation_history"),
+
+        HumanMessage(content=user_input)
+    ])
+
+    response = prompt_template | model
+    ai_response = response.invoke({"instruction": instruction, "conversation_history": conversation_history})
+
+    conversation_history.append({"role": "user", "content": user_input})
+    conversation_history.append({"role": "assistant", "content": ai_response.content})
+    save_memory(session_id, conversation_history)
+
+    return jsonify({"response": ai_response.content.strip()})
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # app.run(debug=True)
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
