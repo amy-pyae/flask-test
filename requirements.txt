@@ -8,3 +8,11 @@ Flask-Cors
 langchain
 google
 PyJWT
+pinecone
+openai
+langchain-community
+langchain-community
+langchain_openai
+langchain_core
+langchain_core
+redis
