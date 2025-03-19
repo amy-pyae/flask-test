@@ -59,7 +59,7 @@ def generate_key(data: str):
 
 @app.route('/')
 def home():
-    return jsonify({"message": "Welcome to the Flask MongoDB App!"})
+    return jsonify({"message": "Welcome to the Flask MongoDB App v-0.1"})
 
 
 @app.route('/api/v1/persona/create', methods=['POST'])
