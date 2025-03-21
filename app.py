@@ -1029,7 +1029,8 @@ def chat():
         extracted_title = user_input.strip()
         return jsonify({
             "response": f"Got it! Your assistant is now named **{extracted_title}**.",
-            "updatedName": extracted_title
+            "detectedProfile": extracted_title,
+            "updatedProfileName": extracted_title
         })
 
     suggested_title = suggest_assistant_name(conversation_history)
@@ -1052,23 +1053,35 @@ def chat():
         else:
             print('Update Instruction')
             updated_instruction = update_instruction(instruction, user_input)
-
+    #
     extracted_title = update_title(updated_instruction)
 
-    messages = [
-        {"role": "system", "content": f"""{info}"""},
-        {"role": "system", "content": f"""You are a helpful assistant configured to help users write instructions. Your goal is to guide the user step by step without providing long explanations.
+    # messages = [
+    #     {"role": "system", "content": f"""{info}"""},
+    #     {"role": "system", "content": f"""You are a helpful assistant configured to help users write instructions. Your goal is to guide the user step by step without providing long explanations.
+    #
+    #           - If a user expresses uncertainty, suggest **one or two specific next steps** in a **short response**.
+    #           - If a user gives a vague request, ask a **single clarifying question** instead of assuming details.
+    #           - Keep responses short, engaging, and focused on **helping the user decide the next step**.
+    #           - Avoid explaining concepts unless the user specifically asks for details.."""}
+    # ]
 
-              - If a user expresses uncertainty, suggest **one or two specific next steps** in a **short response**.
-              - If a user gives a vague request, ask a **single clarifying question** instead of assuming details.
-              - Keep responses short, engaging, and focused on **helping the user decide the next step**.
-              - Avoid explaining concepts unless the user specifically asks for details.."""}
+    messages = [
+        # {"role": "system", "content": f"""{info}"""},
+        {"role": "system", "content": """You are an **Intelligent Writing Assistant** that helps users define their **Writing Style**.
+                                You should only respond if the user is discussing writing preferences. If the input is unrelated, politely ask them to focus on writing style.
+
+                                - If a user expresses uncertainty, suggest **one or two specific next steps** in a **short response**.
+                                  - If a user gives a vague request, ask a **single clarifying question** instead of assuming details.
+                                  - Keep responses short, engaging, and focused on **helping the user decide the next step**.
+                                  - Avoid explaining concepts unless the user specifically asks for details.
+                                  - Summarize their preferences in a structured **Writing Style Guide** """
+         }
     ]
 
     if conversation_history:
         messages.extend(conversation_history)
     messages.append({"role": "user", "content": user_input})
-    print(messages)
     response = model.invoke(messages, temperature=0)
 
     conversation_history.append({"role": "user", "content": user_input})
