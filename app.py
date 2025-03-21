@@ -1,9 +1,9 @@
-from flask import Flask, request, jsonify,make_response
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from flask_pymongo import PyMongo
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.prompts import PromptTemplate,ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain.memory import ConversationSummaryBufferMemory
@@ -26,7 +26,6 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-
 # Configure
 app.config["MONGO_URI"] = os.getenv("MONGO_URI")
 api_key = os.getenv("GEMINI_API_KEY")
@@ -43,7 +42,6 @@ redis_client = redis.Redis(
     password=os.getenv("REDIS_API_PASSWORD")
 )
 
-
 # Initialize Gemini Pro Chat Model
 chat_model = genai.GenerativeModel("gemini-1.5-flash")
 redis_client = redis.Redis(
@@ -54,19 +52,21 @@ redis_client = redis.Redis(
     password=os.getenv("REDIS_API_PASSWORD")
 )
 
+
 def generate_key(data: str):
     return hashlib.sha256(data.encode()).hexdigest()[:16]  # Fixed 16 chars
 
+
 @app.route('/')
 def home():
-    return jsonify({"message": "Welcome to the Flask MongoDB App v-0.1"})
+    return jsonify({"message": "Welcome to the Flask MongoDB App!"})
 
 
 @app.route('/api/v1/persona/create', methods=['POST'])
 def create_agent_writer():
     data = request.get_json()
     # Validate required fields
-    required_fields = ['name','description', 'instruction']
+    required_fields = ['name', 'description', 'instruction']
     if not all(field in data for field in required_fields):
         return jsonify({"error": "Missing required fields"}), 400
 
@@ -82,9 +82,10 @@ def create_agent_writer():
         "created_at": now
     })
     return jsonify({
-                        "id": str(result.inserted_id),
-                        "data": str(result)
-                    }), 201
+        "id": str(result.inserted_id),
+        "data": str(result)
+    }), 201
+
 
 @app.route('/api/v1/persona/<id>', methods=['PUT'])
 def update_agent_writer(id):
@@ -111,6 +112,7 @@ def update_agent_writer(id):
         return jsonify({"error": "Persona not found"}), 404
 
     return jsonify({"id": id}), 200
+
 
 @app.route('/api/v1/persona/deploy/<id>', methods=['post'])
 def deploy_writer(id):
@@ -141,6 +143,7 @@ def deploy_writer(id):
 
     return jsonify({"id": id}), 200
 
+
 @app.route('/api/v1/persona/<id>', methods=['GET'])
 def get_persona(id):
     try:
@@ -152,6 +155,7 @@ def get_persona(id):
             return jsonify({"error": "Persona not found"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/v1/persona/all', methods=['GET'])
 def get_personal_all():
@@ -168,6 +172,7 @@ def get_personal_all():
         t["_id"] = str(t["_id"])
     return jsonify(personas)
 
+
 # Create a new agent task
 @app.route('/api/v1/agent/create', methods=['POST'])
 def create_agent_task():
@@ -179,12 +184,12 @@ def create_agent_task():
         return jsonify({"error": "Missing required fields"}), 400
 
     original_instruction = data['instruction']
-    persona= "<<<Persona>>>"
+    persona = "<<<Persona>>>"
     prompt = data['instruction']
     role = "admin"
     llm = {
         "llm_name": "gemini",
-        "model" : "gemini-flash-pro"
+        "model": "gemini-flash-pro"
     }
 
     if data['is_writer_need']:
@@ -211,7 +216,7 @@ def create_agent_task():
     # Insert the new document into the agent_writers collection
     result = mongo.db.agent_tasks.insert_one({
         "name": data['name'],
-        "key":generate_key(data['name']),
+        "key": generate_key(data['name']),
         "goal": data['goal'],
         "instruction": original_instruction,
         "prompt": prompt,
@@ -220,10 +225,11 @@ def create_agent_task():
         "default_writer": writer_obj_id,
         "parameters": data['parameters'],
         "default_llm": llm,
-        "role":"admin",     # admin,developer
-                            # "created_by":"user"
+        "role": "admin",  # admin,developer
+        # "created_by":"user"
     })
     return jsonify({"id": str(result.inserted_id)}), 201
+
 
 @app.route('/api/v1/agent/<id>', methods=['GET'])
 def get_agent_task(id):
@@ -236,6 +242,7 @@ def get_agent_task(id):
             return jsonify({"error": "Agent not found"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/v1/agent/<id>', methods=['PUT'])
 def update_agent_task(id):
@@ -262,6 +269,7 @@ def update_agent_task(id):
 
     return jsonify({"id": id}), 200
 
+
 @app.route('/api/v1/agent/all', methods=['GET'])
 def get_agent_tasks():
     tasks = list(mongo.db.agent_tasks.aggregate([
@@ -280,16 +288,17 @@ def get_agent_tasks():
         {"$project": {
             "name": 1,
             "goal": 1,
-            "key":1,
+            "key": 1,
             "instruction": 1,
             "is_writer_need": 1,
-            "parameters":1,
+            "parameters": 1,
             "agent_writer": "$agent_writer.name"
         }}
     ]))
     for t in tasks:
         t["_id"] = str(t["_id"])
     return jsonify(tasks)
+
 
 @app.route('/api/v1/agent', methods=['GET'])
 def get_agent_tasks_by_key():
@@ -322,6 +331,7 @@ def get_agent_tasks_by_key():
 
     return jsonify(task)
 
+
 def text_to_html(text):
     """Converts the given text to HTML format."""
 
@@ -342,6 +352,7 @@ def text_to_html(text):
 
     html += "</body></html>"
     return html
+
 
 def replace_prompt_variables(prompt, parameters):
     """Replaces placeholders in the prompt using LangChain's PromptTemplate, ensuring values are enclosed in double quotes."""
@@ -365,10 +376,11 @@ def replace_prompt_variables(prompt, parameters):
     prompt_template = PromptTemplate.from_template(prompt)
     return prompt_template.format(**quoted_parameters)
 
+
 def get_task(task_key):
     task = mongo.db.agent_tasks.find_one(
         {"key": task_key},
-        {"instruction":1, "prompt": 1, "is_writer_need": 1, "default_writer": 1, "parameters": 1}
+        {"instruction": 1, "prompt": 1, "is_writer_need": 1, "default_writer": 1, "parameters": 1}
     )
 
     if task:
@@ -379,15 +391,15 @@ def get_task(task_key):
 
     return task
 
+
 @app.route('/api/v1/prompt', methods=['POST'])
 def test_content():
     data = request.get_json()
     api_key = data.get('api_key', '').strip()
     json_format = data.get('json_format')
 
-    if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
+    if api_key != os.getenv("SYSTEM_API_KEY"):  # need to change
         return jsonify({"error": "Invalid api key"}), 400
-
 
     task_key = data.get('key', '').strip()
     print(f"""Here is key {task_key}""")
@@ -432,7 +444,7 @@ def test_content():
     try:
         response = chat_model.generate_content(final_prompt)
     except Exception as e:
-            return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
+        return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
 
     # html_output = text_to_html(response.text)
     #
@@ -445,11 +457,13 @@ def test_content():
     else:
         return jsonify({"data": response.text}), 200
 
+
 from flask import request, jsonify
 from bson import ObjectId
 
 from flask import request, jsonify
 from bson import ObjectId
+
 
 @app.route('/api/v2/agent/create', methods=['POST'])
 def create_agent_v2():
@@ -504,6 +518,7 @@ def create_agent_v2():
     })
     return jsonify({"id": str(result.inserted_id)}), 201
 
+
 @app.route('/api/v2/prompt', methods=['POST'])
 def prompt_v2():
     data = request.get_json()
@@ -511,10 +526,8 @@ def prompt_v2():
     json_format = data.get('json_format')
     return_html = data.get('return_html')
 
-
-    if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
+    if api_key != os.getenv("SYSTEM_API_KEY"):  # need to change
         return jsonify({"error": "Invalid api key"}), 400
-
 
     task_key = data.get('key', '').strip()
     parameters = data.get('parameters', {})
@@ -562,7 +575,7 @@ def prompt_v2():
     try:
         response = chat_model.generate_content(final_prompt)
     except Exception as e:
-            return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
+        return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
 
     if return_html:
         html_output = text_to_html(response.text)
@@ -587,7 +600,7 @@ def test_writer():
     task = get_task("c7845b09d6a64658")
     # Construct the prompt for the chat API
     # user_request = sdf
-    final_prompt =   task["prompt"] + "\n" + "instruction:" + instruction
+    final_prompt = task["prompt"] + "\n" + "instruction:" + instruction
 
     response = chat_model.generate_content(final_prompt)
     # return response.text
@@ -599,12 +612,13 @@ def test_writer():
     json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
     return jsonify({"data": json_data}), 200
 
+
 @app.route('/api/v1/formatter', methods=['POST'])
 def prompt_formatter():
     data = request.get_json()
     api_key = data.get('api_key', '').strip()
 
-    if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
+    if api_key != os.getenv("SYSTEM_API_KEY"):  # need to change
         return jsonify({"error": "Invalid api key"}), 400
 
     task_key = data.get('key', '').strip()
@@ -620,13 +634,14 @@ def prompt_formatter():
     try:
         response = chat_model.generate_content(final_prompt)
     except Exception as e:
-            return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
+        return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
     #
     #
     #
     cleaned_json_str = re.sub(r'```json\n|\n```', '', response.text).strip()
     json_data = json.loads(cleaned_json_str)  # Convert string to JSON (Python object)
     return jsonify({"data": json_data}), 200
+
 
 @app.route('/api/v2/prompt/editor', methods=['POST'])
 def prompt_editor():
@@ -635,9 +650,8 @@ def prompt_editor():
     json_format = data.get('json_format')
     return_html = data.get('return_html')
 
-    if api_key != os.getenv("SYSTEM_API_KEY"): # need to change
+    if api_key != os.getenv("SYSTEM_API_KEY"):  # need to change
         return jsonify({"error": "Invalid api key"}), 400
-
 
     # task_key = data.get('key', '').strip()
     parameters = data.get('parameters', {})
@@ -655,13 +669,13 @@ def prompt_editor():
 
                         User Instruction:
                         {instruction}
-                    
+
                         Target Content (Selected by User) (Modify this text only):
                         {target_content}
-                    
+
                         Original Content (For Reference, Will Be Returned):
                         {original_content}
-                    
+
                         Guidelines:
                         - Modify **only** the Target Content based on the User Instruction.
                         - Do **not** alter the rest of the Original Content.
@@ -672,7 +686,7 @@ def prompt_editor():
     try:
         response = chat_model.generate_content(final_prompt)
     except Exception as e:
-            return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
+        return jsonify({"error": f"Error calling Gemini API: {str(e)}"}), 500
 
     if return_html:
         html_output = text_to_html(response.text)
@@ -687,7 +701,8 @@ def prompt_editor():
     else:
         return jsonify({"data": response.text}), 200
 
-#===================================
+
+# ===================================
 def get_memory(session_id):
     """Retrieve the summarized conversation from Redis as a list."""
     summary = redis_client.get(f"summary:{session_id}")
