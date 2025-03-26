@@ -19,3 +19,8 @@ redis
 docx2txt
 pandas
 openpyxl
+
+
+
+langchain-openai==0.0.5
+langchain-community==0.0.13
