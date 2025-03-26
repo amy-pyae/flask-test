@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain_core.runnables import RunnableBranch
+from werkzeug.utils import secure_filename
 import google.generativeai as genai
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -20,6 +21,10 @@ import jwt
 import re
 import json
 from datetime import datetime, UTC
+from langchain.document_loaders import PyPDFLoader
+import docx2txt
+import pandas as pd
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
@@ -27,6 +32,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Configure
+ALLOWED_EXTENSIONS = {'pdf', 'docx'}
 app.config["MONGO_URI"] = os.getenv("MONGO_URI")
 api_key = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -51,6 +57,12 @@ redis_client = redis.Redis(
     username=os.getenv("REDIS_USER_NAME"),
     password=os.getenv("REDIS_API_PASSWORD")
 )
+
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Create the upload folder if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
 def generate_key(data: str):
@@ -1419,6 +1431,130 @@ def chat():
     return jsonify({
         "response": response.content
     })
+
+# =======================
+@app.route("/api/v1/get-projects", methods=["GET"])
+def get_projects():
+    try:
+        projects = mongo.db.projects.find({}, {"_id": 1, "projectName": 1})
+        project_list = list(projects)
+        for t in project_list:
+            t["_id"] = str(t["_id"])
+        return jsonify(project_list), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def clean_json_string(text):
+    # Remove markdown-style backticks if present
+    text = re.sub(r"^```json\\n?|```$", "", text.strip(), flags=re.MULTILINE)
+    return text.strip()
+
+
+def extract_exact_fields_from_excel(filepath):
+    df = pd.read_excel(filepath, engine="openpyxl")
+    df.dropna(how='all', inplace=True)
+
+    label_map = {
+        "target audience": "target_audience",
+        "tone/voice & vocabulary": "tone_of_voice_and_vocab",
+        "important notes": "important_notes",
+        "ce/cs": "ce_cs"
+    }
+
+    result = {}
+
+    for i in range(len(df)):
+        label = df.iloc[i, 0]
+        if isinstance(label, str):
+            label_clean = label.strip().lower().replace("\n", " ")
+            for excel_label, json_key in label_map.items():
+                # Match even if there are extra spaces
+                if excel_label.replace(" ", "") in label_clean.replace(" ", ""):
+                    value = df.iloc[i, 2]
+                    if isinstance(value, str):
+                        result[json_key] = value.strip()
+
+    return result
+
+
+@app.route("/api/v1/summarizing", methods=["POST"])
+def docs_summarizing():
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    ext = filename.rsplit('.', 1)[1].lower()
+    try:
+        if ext == 'pdf':
+            loader = PyPDFLoader(filepath)
+            docs = loader.load()
+            text = " ".join([doc.page_content for doc in docs])
+        elif ext == 'docx':
+            text = docx2txt.process(filepath)
+        elif ext == 'xlsx':
+            summary_data = extract_exact_fields_from_excel(filepath)
+
+            text = json.dumps(summary_data)
+        else:
+            return jsonify({'error': 'Unsupported file type'}), 400
+
+        # final_summary_json = summarize_text_to_structured_json(text)
+        # print(text)
+        # return {"status": "success"}
+        # now = datetime.now(UTC)
+        return {"summarize": json.loads(text), "status": "success"}
+        # try:
+        #     document = {
+        #         "name": name,
+        #         "project_id": project_id,
+        #         "created_by": user_id,
+        #         "summary_data": json.loads(text),
+        #         "created_at": now,
+        #         "updated_at": now
+        #     }
+        #
+        #     result = mongo.db.content_summaries.insert_one(document)
+        #     return {"inserted_id": str(result.inserted_id), "status": "success"}
+        # except Exception as e:
+        #     return {"error": str(e), "status": "failed"}
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route("/api/v1/create-summarizing", methods=["POST"])
+def create_summary_content():
+    data = request.json
+    user_id = data.get("user_id")
+    project_id = data.get("project_id")
+    name = data.get("name")
+    summary_data = data.get("summary_data")
+    now = datetime.now(UTC)
+
+    try:
+        document = {
+            "name": name,
+            "project_id": project_id,
+            "created_by": user_id,
+            "summary_data":summary_data,
+            "created_at": now,
+            "updated_at": now
+        }
+        print(document)
+        result = mongo.db.agent_writers.insert_one(document)
+        return {"inserted_id": str(result.inserted_id), "status": "success"}
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 if __name__ == '__main__':

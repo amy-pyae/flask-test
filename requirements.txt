@@ -16,3 +16,6 @@ langchain_openai
 langchain_core
 langchain_core
 redis
+docx2txt
+pandas
+openpyxl
