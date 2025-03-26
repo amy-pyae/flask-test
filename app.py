@@ -20,6 +20,7 @@ from routes.projects import project_bp
 from routes.agents import agent_bp
 from routes.chatbot import chatbot_bp
 from routes.generate_blog import generate_blog_bp
+from routes.unstructure_upload import un_structure_bp
 
 API_PREFIX = '/api'
 app.register_blueprint(seo_writer_bp, url_prefix=API_PREFIX)
@@ -27,6 +28,7 @@ app.register_blueprint(project_bp, url_prefix=API_PREFIX)
 app.register_blueprint(agent_bp, url_prefix=API_PREFIX)
 app.register_blueprint(chatbot_bp, url_prefix=API_PREFIX)
 app.register_blueprint(generate_blog_bp, url_prefix=API_PREFIX)
+app.register_blueprint(un_structure_bp, url_prefix=API_PREFIX)
 
 
 @app.route('/')
