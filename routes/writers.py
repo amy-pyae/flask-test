@@ -3,7 +3,7 @@ from extensions import mongo
 from datetime import datetime, UTC
 from bson import ObjectId
 from werkzeug.utils import secure_filename
-from langchain.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
 from helpers.FileReader import extract_exact_fields_from_excel
 import json
 import os
