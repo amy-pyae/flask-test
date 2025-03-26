@@ -7,22 +7,14 @@ from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from flask import Flask, request, jsonify, make_response, Blueprint
-from flask_cors import CORS
-from flask_pymongo import PyMongo
-from datetime import datetime, UTC
 from werkzeug.utils import secure_filename
-from extensions import mongo
 
 
 un_structure_bp = Blueprint('un_structure_upload', __name__)
 
 load_dotenv()
 UPLOAD_FOLDER = 'uploads'
-app = Flask(__name__)
-CORS(app)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-# Configuration Parameters
 MODEL_NAME = "gpt-4o-mini"
 TEMPERATURE = 0.2
 MAX_TOKENS = 1000
@@ -138,18 +130,9 @@ def furnish_json_response(extracted_data: Dict[str, str], model) -> Dict[str, st
         print(response)
         return {"response": cleaned_response}
 
-@app.route("/api/v1/get-projects", methods=["GET"])
-def get_projects():
-    try:
-        projects = mongo.db.projects.find({}, {"_id": 1, "projectName": 1})
-        project_list = list(projects)
-        for t in project_list:
-            t["_id"] = str(t["_id"])
-        return jsonify(project_list), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-@app.route("/api/v1/summarizing", methods=["POST"])
-def docs_summarizing():
+
+@un_structure_bp.route("/v1/un-structure-summarizing", methods=["POST"])
+def docs_un_structure_summarizing():
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     file = request.files['file']
@@ -158,60 +141,39 @@ def docs_summarizing():
     if not file.filename.endswith('.pdf'):
         return jsonify({'error': 'Only PDF files are allowed'}), 400
     file_path = None
-    try:
-        # Create uploads directory if it doesn't exist
-        if not os.path.exists(app.config['UPLOAD_FOLDER']):
-            os.makedirs(app.config['UPLOAD_FOLDER'])
-        # Save the uploaded file
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        # Process the PDF using the new functions
-        pdf_text = read_pdf_with_loader(file_path)
-        if not pdf_text.strip():
-            return jsonify({'error': 'The PDF file appears to be empty or could not be read.'}), 400
-        # Split text into chunks
-        chunks = split_text(pdf_text, CHUNK_SIZE, CHUNK_OVERLAP)
-        # Summarize the text
-        summary = summarize_text(chunks, model)
-        # Extract relevant data based on the summary
-        extracted_data = extract_from_summary(summary, model)
-        # Furnish and finalize the response
-        final_json = furnish_json_response(extracted_data, model)
-        # Export the final JSON data to a file
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{os.path.splitext(filename)[0]}_structure.json")
-        export_json_to_file(final_json, output_path)
-        return jsonify({
-            'status': 'success',
-            'summary': summary,
-            'extracted_data': extracted_data,
-            'final_json': final_json,
-            'output_file': output_path
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    finally:
-        # Clean up the temporary file
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-@app.route("/api/v1/create-summarizing", methods=["POST"])
-def create_summary_content():
-    data = request.json
-    user_id = data.get("user_id")
-    project_id = data.get("project_id")
-    name = data.get("name")
-    summary_data = data.get("summary_data")
-    now = datetime.now(UTC)
-    try:
-        document = {
-            "name": name,
-            "project_id": project_id,
-            "created_by": user_id,
-            "summary_data": summary_data,
-            "created_at": now,
-            "updated_at": now
-        }
-        result = mongo.db.agent_writers.insert_one(document)
-        return {"inserted_id": str(result.inserted_id), "status": "success"}
-    except Exception as e:
-        return {"error": str(e), "status": "failed"}
+    # try:
+    # Create uploads directory if it doesn't exist
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+    # Save the uploaded file
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(file_path)
+    # Process the PDF using the new functions
+    pdf_text = read_pdf_with_loader(file_path)
+    if not pdf_text.strip():
+        return jsonify({'error': 'The PDF file appears to be empty or could not be read.'}), 400
+    # Split text into chunks
+    chunks = split_text(pdf_text, CHUNK_SIZE, CHUNK_OVERLAP)
+    # Summarize the text
+    summary = summarize_text(chunks, model)
+    # Extract relevant data based on the summary
+    extracted_data = extract_from_summary(summary, model)
+    # Furnish and finalize the response
+    final_json = furnish_json_response(extracted_data, model)
+    # Export the final JSON data to a file
+    output_path = os.path.join(UPLOAD_FOLDER, f"{os.path.splitext(filename)[0]}_structure.json")
+    export_json_to_file(final_json, output_path)
+    return jsonify({
+        'status': 'success',
+        'summary': summary,
+        'extracted_data': extracted_data,
+        'final_json': final_json,
+        'output_file': output_path
+    })
+    # except Exception as e:
+    #     return jsonify({'error': str(e)}), 500
+    # finally:
+    #     # Clean up the temporary file
+    #     if file_path and os.path.exists(file_path):
+    #         os.remove(file_path)

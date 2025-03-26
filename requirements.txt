@@ -21,6 +21,6 @@ pandas
 openpyxl
 
 
-
+pypdf
 langchain-openai==0.0.5
 langchain-community==0.0.13
