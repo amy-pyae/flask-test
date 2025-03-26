@@ -366,28 +366,35 @@ def test_instruction():
     data = request.json
     user_input = data.get("message")
     session_id = data.get("session_id", "default_session")
-    instruction = data.get("instruction")
     name = data.get("name")
-    description = data.get("description")
+    tone_of_voice_and_vocab = data.get("tone_of_voice_and_vocab")
+    target_audience = data.get("target_audience")
+    important_notes = data.get("important_notes")
     conversation_history = get_memory(session_id)
 
     if not user_input:
         return jsonify({"error": "Message is required."}), 400
 
-    # messages = [{"role": "user", "content": user_input}]
+    system_instruction = (
+        "You are a blog-writing AI assistant. The user will provide information step by step "
+        "(e.g., topic, tone, target audience, word count). "
+        "Do not generate the blog until the user clearly asks you to. "
+        "Instead, ask clarifying questions or confirm details if needed."
+    )
+
     prompt_template = ChatPromptTemplate.from_messages([
-        SystemMessage(content="You are an AI assistant being configured by the user."),
-        SystemMessage(content="Your goal is to update the assistant's behavior naturally based on user requests."),
-        SystemMessage(content=f"Current Assistant Configuration: {instruction}"),
+        SystemMessage(content=system_instruction),
         SystemMessage(content=f"Current Assistant Name: {name}"),
-        SystemMessage(content=f"Current Assistant Description: {description}"),
+        SystemMessage(content= f"Tone of Voice and Vocabulary: {tone_of_voice_and_vocab}\n"
+                                                                f"Target Audience: {target_audience}\n"
+                                                                f"Important Notes: {important_notes}"),
         MessagesPlaceholder(variable_name="conversation_history"),
         HumanMessage(content=user_input)
     ])
 
     response = prompt_template | model
     ai_response = response.invoke(
-        {"instruction": instruction, "conversation_history": conversation_history})  # ✅ Apply instruction
+        {"conversation_history": conversation_history})
 
     conversation_history.append({"role": "user", "content": user_input})
     conversation_history.append({"role": "assistant", "content": ai_response.content})
