@@ -6,7 +6,7 @@ from langchain_pinecone import PineconeVectorStore
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from extensions import mongo
@@ -140,7 +140,7 @@ def chat():
     # Step 1: Get vector store & documents
     vectorstore = get_vectorstore()
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
-    retrieved_docs = retriever.get_relevant_documents(query)
+    retrieved_docs = retriever.invoke(query)
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
 
     conversation_history = get_memory(session_id)  # returns list of messages
@@ -161,7 +161,7 @@ def chat():
         "role": "system",
         "content": f"""You are a smart document assistant. The user has uploaded a document, and relevant content from that document will be retrieved and provided to you when they ask questions.
     
-                    Here’s how you should behave:
+                    Here's how you should behave:
                     
                     - When the user asks a question (e.g., "What does the introduction say?"), use the provided document content to answer accurately.
                     - After answering, ask: "Would you like to update the instruction based on this?" only once per user request.
@@ -170,7 +170,7 @@ def chat():
                     - As soon as you detect that the user is describing a change they want to make in the document, respond with **only** the word: `update`.
                     - Do not explain or ask again. Just say: `update`, and wait for the system to handle it.
                     
-                    Be clear, helpful, and natural. Use only the document content provided. Do not assume anything beyond what’s given.
+                    Be clear, helpful, and natural. Use only the document content provided. Do not assume anything beyond what's given.
                     
                     Document Context:
                     

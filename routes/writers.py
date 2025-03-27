@@ -3,11 +3,12 @@ from extensions import mongo
 from datetime import datetime, UTC
 from bson import ObjectId
 from werkzeug.utils import secure_filename
-from langchain.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
 from helpers.FileReader import extract_exact_fields_from_excel
 import json
 import os
 import docx2txt
+import io
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -163,7 +164,6 @@ def create_summary_content():
 
 @seo_writer_bp.route("/v2/persona/structured-data/summarizing", methods=["POST"])
 def docs_summarizing():
-
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
 
@@ -172,24 +172,26 @@ def docs_summarizing():
         return jsonify({'error': 'No file selected'}), 400
 
     filename = secure_filename(file.filename)
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(filepath)
-
     ext = filename.rsplit('.', 1)[1].lower()
+    
     try:
         if ext == 'pdf':
-            loader = PyPDFLoader(filepath)
+            # Read PDF directly from memory
+            pdf_stream = io.BytesIO(file.read())
+            loader = PyPDFLoader(pdf_stream)
             docs = loader.load()
             text = " ".join([doc.page_content for doc in docs])
         elif ext == 'docx':
-            text = docx2txt.process(filepath)
+            # Read DOCX directly from memory
+            docx_stream = io.BytesIO(file.read())
+            text = docx2txt.process(docx_stream)
         elif ext == 'xlsx':
-            summary_data = extract_exact_fields_from_excel(filepath)
-
+            # Read Excel directly from memory
+            excel_stream = io.BytesIO(file.read())
+            summary_data = extract_exact_fields_from_excel(excel_stream)
             text = json.dumps(summary_data)
         else:
             return jsonify({'error': 'Unsupported file type'}), 400
-
 
         return {"summarize": json.loads(text), "status": "success"}
 
