@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import tempfile
 from dotenv import load_dotenv
 from typing import List, Dict
 from langchain_openai import ChatOpenAI
@@ -183,40 +184,41 @@ def docs_un_structure_summarizing():
         return jsonify({'error': 'No file selected'}), 400
     if not file.filename.endswith('.pdf'):
         return jsonify({'error': 'Only PDF files are allowed'}), 400
-    file_path = None
-    # try:
-    # Create uploads directory if it doesn't exist
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
-    # Save the uploaded file
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(file_path)
-    # Process the PDF using the new functions
-    pdf_text = read_pdf_with_loader(file_path)
-    if not pdf_text.strip():
-        return jsonify({'error': 'The PDF file appears to be empty or could not be read.'}), 400
-    # Split text into chunks
-    chunks = split_text(pdf_text, CHUNK_SIZE, CHUNK_OVERLAP)
-    # Summarize the text
-    summary = summarize_text(chunks, model)
-    # Extract relevant data based on the summary
-    extracted_data = extract_from_summary(summary, model)
-    # Furnish and finalize the response
-    final_json = furnish_json_response(extracted_data, model)
-    # Export the final JSON data to a file
-    output_path = os.path.join(UPLOAD_FOLDER, f"{os.path.splitext(filename)[0]}_structure.json")
-    export_json_to_file(final_json, output_path)
-    return jsonify({
-        'status': 'success',
-        'summary': summary,
-        'extracted_data': extracted_data,
-        'final_json': final_json,
-        'output_file': output_path
-    })
-    # except Exception as e:
-    #     return jsonify({'error': str(e)}), 500
-    # finally:
-    #     # Clean up the temporary file
-    #     if file_path and os.path.exists(file_path):
-    #         os.remove(file_path)
+
+    # Create a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+        file.save(temp_file.name)
+        temp_path = temp_file.name
+
+    try:
+        # Process the PDF using the new functions
+        pdf_text = read_pdf_with_loader(temp_path)
+        if not pdf_text.strip():
+            return jsonify({'error': 'The PDF file appears to be empty or could not be read.'}), 400
+
+        # Split text into chunks
+        chunks = split_text(pdf_text, CHUNK_SIZE, CHUNK_OVERLAP)
+        
+        # Summarize the text
+        summary = summarize_text(chunks, model)
+        
+        # Extract relevant data based on the summary
+        extracted_data = extract_from_summary(summary, model)
+        
+        # Furnish and finalize the response
+        final_json = furnish_json_response(extracted_data, model)
+
+        return jsonify({
+            'status': 'success',
+            'chunks': chunks,
+            'summary': summary,
+            'extracted_data': extracted_data,
+            'final_json': final_json
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
