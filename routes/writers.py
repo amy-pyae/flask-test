@@ -149,6 +149,8 @@ def create_summary_content():
             "name": name,
             "project_id": project_id,
             "created_by": user_id,
+            "prompt":"",
+            "instruction":"",
             "summary_data":summary_data,
             "created_at": now,
             "updated_at": now

@@ -81,7 +81,7 @@ def upload_file():
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     docs_split = splitter.split_documents(docs)
-    print(docs_split)
+    # print(docs_split)
     embeddings = OpenAIEmbeddings()
     vectorstore = PineconeVectorStore.from_documents(
         documents=docs_split,
