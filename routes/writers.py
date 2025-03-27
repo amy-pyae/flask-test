@@ -184,31 +184,33 @@ def create_summary_content():
     user_id = data.get("user_id")
     project_id = data.get("project_id")
     name = data.get("name")
-    summary_data = data.get("summary_data")
+    instruction = data.get("instruction")
+
+    # summary_data = data.get("summary_data")
     now = datetime.now(UTC)
 
-    prompt_string = (
-        f"Target Audience: {summary_data["target_audience"]}\n"
-        f"Important Notes: {summary_data["important_notes"]}\n"
-        f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}"
-    )
-    combined_string = (
-        f"Target Audience: {summary_data["target_audience"]}\n"
-        f"==============================\n"
-        f"Important Notes: {summary_data["important_notes"]}\n"
-        f"==============================\n"
-        f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}\n"
-        f"=============================="
-    )
+    # prompt_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}"
+    # )
+    # combined_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"==============================\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"==============================\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}\n"
+    #     f"=============================="
+    # )
 
     try:
         document = {
             "name": name,
             "project_id": project_id,
             "created_by": user_id,
-            "prompt": combined_string,
-            "instruction":prompt_string,
-            "summary_data":summary_data,
+            "prompt": instruction,
+            "instruction":instruction,
+            # "summary_data":summary_data,
             "created_at": now,
             "updated_at": now
         }
