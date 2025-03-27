@@ -88,17 +88,41 @@ def get_persona(id):
 def update_agent_writer(id):
     data = request.get_json()
     # Validate required fields
-    required_fields = ['name', 'summary_data']
+    required_fields = ['name', 'summary_data', 'instruction']
     if not all(field in data for field in required_fields):
         return jsonify({"error": "Missing required fields"}), 400
 
     now = datetime.now(UTC)
+    summary_data =  data['summary_data']
+    instruction = data['instruction']
+
+    # combined_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}"
+    # )
+
+    # prompt_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}"
+    # )
+    # combined_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"==============================\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"==============================\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}\n"
+    #     f"=============================="
+    # )
 
     # Update the document in the agent_writers collection
     result = mongo.db.agent_writers.update_one(
         {"_id": ObjectId(id)},
         {"$set": {
             "name": data['name'],
+            "instruction": instruction,
+            "prompt": instruction,
             "summary_data": data['summary_data'],
             "updated_at": now
         }}
@@ -120,10 +144,28 @@ def deploy_writer(id):
 
     now = datetime.now(UTC)
 
+    summary_data = data['summary_data']
+    instruction = data['instruction']
+    # prompt_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}"
+    # )
+    # combined_string = (
+    #     f"Target Audience: {summary_data["target_audience"]}\n"
+    #     f"==============================\n"
+    #     f"Important Notes: {summary_data["important_notes"]}\n"
+    #     f"==============================\n"
+    #     f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}\n"
+    #     f"=============================="
+    # )
+
     result = mongo.db.agent_writers.update_one(
         { "_id": ObjectId(id) },
         {"$set": {
             "name": data['name'],
+            "prompt": instruction,
+            "instruction": instruction,
             "summary_data": data['summary_data'],
             "updated_at": now,
             "deploy_by": data['user_id']
@@ -145,18 +187,32 @@ def create_summary_content():
     summary_data = data.get("summary_data")
     now = datetime.now(UTC)
 
+    prompt_string = (
+        f"Target Audience: {summary_data["target_audience"]}\n"
+        f"Important Notes: {summary_data["important_notes"]}\n"
+        f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}"
+    )
+    combined_string = (
+        f"Target Audience: {summary_data["target_audience"]}\n"
+        f"==============================\n"
+        f"Important Notes: {summary_data["important_notes"]}\n"
+        f"==============================\n"
+        f"Tone/Voice & Vocab: {summary_data["tone_of_voice_and_vocab"]}\n"
+        f"=============================="
+    )
+
     try:
         document = {
             "name": name,
             "project_id": project_id,
             "created_by": user_id,
-            "prompt":"",
-            "instruction":"",
+            "prompt": combined_string,
+            "instruction":prompt_string,
             "summary_data":summary_data,
             "created_at": now,
             "updated_at": now
         }
-        print(document)
+        # print(document)
         result = mongo.db.agent_writers.insert_one(document)
         return {"inserted_id": str(result.inserted_id), "status": "success"}
     except Exception as e:
@@ -192,8 +248,13 @@ def docs_summarizing():
             text = json.dumps(summary_data)
         else:
             return jsonify({'error': 'Unsupported file type'}), 400
-
-        return {"summarize": json.loads(text), "status": "success"}
+        summarize = json.loads(text)
+        combined_string = (
+            f"Target Audience: {summarize["target_audience"]}\n" 
+            f"Important Notes: {summarize["important_notes"]}\n"  
+            f"Tone/Voice & Vocab: {summarize["tone_of_voice_and_vocab"]}"
+        )
+        return {"summarize":summarize, "instruction": combined_string, "status": "success"}
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
