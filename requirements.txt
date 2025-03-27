@@ -19,7 +19,9 @@ redis
 docx2txt
 pandas
 openpyxl
-
+langchain_pinecone
+unstructured
+unstructured[all-docs]
 
 pypdf
 langchain-openai==0.0.5

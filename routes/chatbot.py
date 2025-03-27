@@ -377,7 +377,7 @@ def test_instruction():
 
     system_instruction = (
         "You are a blog-writing AI assistant. The user will provide information step by step "
-        "(e.g., topic, tone, target audience, word count). "
+        "(e.g., topic, word count, primary keywords). "
         "Do not generate the blog until the user clearly asks you to. "
         "Instead, ask clarifying questions or confirm details if needed."
     )
@@ -399,6 +399,43 @@ def test_instruction():
     conversation_history.append({"role": "user", "content": user_input})
     conversation_history.append({"role": "assistant", "content": ai_response.content})
     save_memory(session_id, conversation_history)
+
+    #     vectorstore = get_vectorstore()
+    #     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+    #     retrieved_docs = retriever.get_relevant_documents(query)
+    #     conversation_history = get_memory(session_id)
+    #
+    #     # Combine retrieved document content into a context string
+    #     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+    #
+    #     # Build prompt: include a system instruction with the retrieved context
+    #     system_prompt = {
+    #         "role": "system",
+    #         "content": f"You are a helpful assistant. Use the following context from an uploaded document to answer the user's question:\n\n{context}"
+    #     }
+    #     # messages = [
+    #     #     {"role": "system",
+    #     #      "content": f"You are a helpful assistant. Use the following context from an uploaded document to answer the user's question:\n\n{context}"},
+    #     #     {"role": "user", "content": user_input}
+    #     # ]
+    #     # print(conversation_history)
+    #     # Build message list (system + past messages + new user message)
+    #     messages = [system_prompt] + conversation_history + [
+    #         {"role": "user", "content": query}
+    #     ]
+    #
+    #     # Invoke the LLM with the constructed prompt
+    #     response = model.invoke(messages, temperature=0.3)
+    #
+    #     conversation_history.append({"role": "user", "content": query})
+    #     conversation_history.append({"role": "assistant", "content": response.content})
+    #
+    #     save_memory(session_id, conversation_history)
+    #
+    #     # Return the response from the LLM
+    #     return jsonify({
+    #         "response": response.content
+    #     })
 
     return jsonify({"response": ai_response.content.strip()})
 
