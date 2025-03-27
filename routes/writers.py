@@ -251,10 +251,17 @@ def docs_summarizing():
         else:
             return jsonify({'error': 'Unsupported file type'}), 400
         summarize = json.loads(text)
+
+
+        target_audience = summarize["target_audience"]
+        important_notes = summarize["important_notes"]
+        tone_of_voice_and_vocab = summarize["tone_of_voice_and_vocab"]
+
         combined_string = (
-            f"Target Audience: {summarize["target_audience"]}\n" 
-            f"Important Notes: {summarize["important_notes"]}\n"  
-            f"Tone/Voice & Vocab: {summarize["tone_of_voice_and_vocab"]}"
+            f"""Target Audience: {target_audience}\n
+            Tone/Voice & Vocab: {tone_of_voice_and_vocab}\n
+            Important Notes: {important_notes}"""
+
         )
         return {"summarize":summarize, "instruction": combined_string, "status": "success"}
 
